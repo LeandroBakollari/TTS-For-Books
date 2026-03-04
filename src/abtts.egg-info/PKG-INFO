@@ -1,0 +1,79 @@
+Metadata-Version: 2.4
+Name: abtts
+Version: 0.1.0
+Summary: Audiobook TTS desktop app using Kokoro
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+Requires-Dist: PySide6>=6.6
+Requires-Dist: numpy>=1.26
+Requires-Dist: kokoro
+
+# Audiobook TTS (Kokoro + UI)
+
+Desktop UI to load a TXT file, split it into sections, select which sections to generate, and produce `.wav` files with Kokoro voices.
+
+## Input format
+
+The parser detects section headers that start with one of these:
+
+- `CHAPTER ...`
+- `EXTRA ...`
+- `SIDE STORY ...`
+
+Example:
+
+```text
+CHAPTER 1: Arrival
+This is the first chapter text.
+
+SIDE STORY: Tavern Scene
+Extra side content.
+
+EXTRA: Author Notes
+Notes text.
+```
+
+If no headers are found, the whole file is treated as one chapter.
+
+## Setup
+
+From project root:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -U pip
+pip install -e .
+```
+
+## Run
+
+Optional: choose Kokoro voice (example with an elegant female voice):
+
+```powershell
+$env:ABTTS_VOICE = "af_heart"
+```
+
+Start app:
+
+```powershell
+abtts
+```
+
+Or:
+
+```powershell
+python -m abtts
+```
+
+## Use in UI
+
+1. Choose or drag a `.txt` file.
+2. Select sections to generate.
+3. Optionally change output folder.
+4. Click `Generate`.
+5. Wait for completion. One `.wav` file is written per selected section.
+
+## Output
+
+Generated files are written to the selected output folder (default: `~/AudiobookTTS/Output`).
