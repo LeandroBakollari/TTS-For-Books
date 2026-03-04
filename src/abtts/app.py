@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional
 
@@ -8,25 +7,24 @@ from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QDragEnterEvent, QDropEvent
 from PySide6.QtWidgets import (
     QApplication,
-    QFrame,
     QFileDialog,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QListWidget,
     QListWidgetItem,
     QMainWindow,
     QMessageBox,
-    QPushButton,
     QProgressBar,
+    QPushButton,
     QSizePolicy,
     QStackedWidget,
-    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
 
 from abtts.job_worker import JobPlan, JobWorker
-from abtts.section_parser import Section, parse_sections_from_text
+from abtts.section_parser import Section, parse_sections_from_epub, parse_sections_from_text
 
 
 def default_output_dir() -> str:
@@ -43,7 +41,7 @@ class DropZone(QFrame):
         self.setAcceptDrops(True)
         self.setFrameShape(QFrame.StyledPanel)
         self.setStyleSheet("QFrame { border: 2px dashed #888; border-radius: 8px; }")
-        self.label = QLabel("Drop a .txt file here\nor use “Choose file”")
+        self.label = QLabel('Drop a .txt or .epub file here\nor use "Choose file"')
         self.label.setAlignment(Qt.AlignCenter)
         layout = QVBoxLayout(self)
         layout.addWidget(self.label)
@@ -64,7 +62,7 @@ class DropZone(QFrame):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Audiobook TTS (Kokoro) — TXT Prototype")
+        self.setWindowTitle("Audiobook TTS (Kokoro) - TXT/EPUB")
         self.resize(980, 620)
         self.setMinimumSize(720, 480)
 
@@ -84,10 +82,6 @@ class MainWindow(QMainWindow):
         self.stack.addWidget(self.page_progress)
         self.stack.setCurrentWidget(self.page_select)
 
-    # ---------------------------
-    # Page 1: file + selection
-    # ---------------------------
-
     def _build_select_page(self) -> QWidget:
         root = QWidget()
         root_layout = QVBoxLayout(root)
@@ -97,12 +91,11 @@ class MainWindow(QMainWindow):
         header.setStyleSheet("font-size: 18px; font-weight: 600;")
         root_layout.addWidget(header)
 
-        # Drop zone + choose file button row
         top_row = QHBoxLayout()
         self.drop_zone = DropZone()
         self.drop_zone.file_dropped.connect(self._load_file)
 
-        self.btn_choose = QPushButton("Choose file…")
+        self.btn_choose = QPushButton("Choose file...")
         self.btn_choose.clicked.connect(self._choose_file)
 
         top_row.addWidget(self.drop_zone, 1)
@@ -113,13 +106,11 @@ class MainWindow(QMainWindow):
         self.lbl_file.setWordWrap(True)
         root_layout.addWidget(self.lbl_file)
 
-        # Sections list
         self.list_sections = QListWidget()
         self.list_sections.itemChanged.connect(self._update_generate_enabled)
         self.list_sections.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         root_layout.addWidget(self.list_sections, 1)
 
-        # Selection buttons
         btn_row = QHBoxLayout()
         self.btn_select_all = QPushButton("Select all")
         self.btn_deselect_all = QPushButton("Deselect all")
@@ -133,15 +124,13 @@ class MainWindow(QMainWindow):
         btn_row.addWidget(self.btn_deselect_all)
         btn_row.addWidget(self.btn_select_under)
         btn_row.addStretch(1)
-
         root_layout.addLayout(btn_row)
 
-        # Output folder + generate
         bottom_row = QHBoxLayout()
         self.lbl_out = QLabel(f"Output folder: {default_output_dir()}")
         self.lbl_out.setWordWrap(True)
 
-        self.btn_output = QPushButton("Change output folder…")
+        self.btn_output = QPushButton("Change output folder...")
         self.btn_output.clicked.connect(self._choose_output)
 
         self.btn_generate = QPushButton("Generate")
@@ -152,15 +141,14 @@ class MainWindow(QMainWindow):
         bottom_row.addWidget(self.btn_output, 0)
         bottom_row.addWidget(self.btn_generate, 0)
         root_layout.addLayout(bottom_row)
-
         return root
 
     def _choose_file(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
             self,
-            "Choose TXT file",
+            "Choose TXT or EPUB file",
             str(Path.home()),
-            "Text files (*.txt);;All files (*.*)",
+            "Supported files (*.txt *.epub);;Text files (*.txt);;EPUB files (*.epub);;All files (*.*)",
         )
         if path:
             self._load_file(path)
@@ -183,11 +171,19 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(self, "File not found", "That file path does not exist.")
                 return
 
+            ext = p.suffix.lower()
+            if ext not in {".txt", ".epub"}:
+                QMessageBox.warning(self, "Unsupported file", "Please select a .txt or .epub file.")
+                return
+
             self._input_path = str(p)
             self.lbl_file.setText(f"Selected file: {self._input_path}")
 
-            content = p.read_text(encoding="utf-8", errors="ignore")
-            self._sections = parse_sections_from_text(content)
+            if ext == ".epub":
+                self._sections = parse_sections_from_epub(str(p))
+            else:
+                content = p.read_text(encoding="utf-8", errors="ignore")
+                self._sections = parse_sections_from_text(content)
 
             self._populate_sections_list(self._sections)
             self._update_generate_enabled()
@@ -200,10 +196,8 @@ class MainWindow(QMainWindow):
         self.list_sections.clear()
 
         for s in sections:
-            # display string format requested by you
-            # e.g. "CH 3 : Name of ch", "EXTRA : Name", "SIDE STORY : Name"
             if s.kind == "CHAPTER":
-                display = f"CH {s.title}"
+                display = s.title
             elif s.kind == "EXTRA":
                 display = f"EXTRA {s.title}"
             else:
@@ -241,54 +235,32 @@ class MainWindow(QMainWindow):
     def _update_generate_enabled(self) -> None:
         self.btn_generate.setEnabled(len(self._selected_indices()) > 0 and self._input_path is not None)
 
-    # ---------------------------
-    # Page 2: progress / finished
-    # ---------------------------
-
     def _build_progress_page(self) -> QWidget:
         root = QWidget()
         layout = QVBoxLayout(root)
         layout.setSpacing(12)
 
-        header = QLabel("Generating…")
+        header = QLabel("Generating...")
         header.setStyleSheet("font-size: 18px; font-weight: 600;")
         layout.addWidget(header)
 
-        main_row = QHBoxLayout()
-
-        # Left: completed list
-        left_col = QVBoxLayout()
-        left_lbl = QLabel("Completed so far")
+        layout.addWidget(QLabel("Completed so far"))
         self.list_done = QListWidget()
-        left_col.addWidget(left_lbl)
-        left_col.addWidget(self.list_done, 1)
+        layout.addWidget(self.list_done, 1)
 
-        main_row.addLayout(left_col, 1)
+        self.lbl_now = QLabel("Now doing: starting...")
+        self.lbl_now.setWordWrap(True)
+        layout.addWidget(self.lbl_now)
 
-        # Right: details / logs
-        right_col = QVBoxLayout()
-        right_lbl = QLabel("Details")
-        self.txt_log = QTextEdit()
-        self.txt_log.setReadOnly(True)
-        right_col.addWidget(right_lbl)
-        right_col.addWidget(self.txt_log, 1)
-
-        main_row.addLayout(right_col, 1)
-
-        layout.addLayout(main_row, 1)
-
-        # Bottom: progress + cps + eta
         bottom = QHBoxLayout()
         self.progress = QProgressBar()
         self.progress.setRange(0, 100)
-        self.lbl_stats = QLabel("0 chars / 0 chars | 0 chars/s | ETA: --")
+        self.lbl_stats = QLabel("Chunks 0/0 | 0/0 chars | 0 chars/s | ETA: --")
         self.lbl_stats.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-
         bottom.addWidget(self.progress, 1)
         bottom.addWidget(self.lbl_stats, 0)
         layout.addLayout(bottom)
 
-        # Finished panel (hidden until done)
         self.finished_box = QFrame()
         self.finished_box.setFrameShape(QFrame.StyledPanel)
         self.finished_box.setVisible(False)
@@ -297,11 +269,9 @@ class MainWindow(QMainWindow):
         self.lbl_finished.setWordWrap(True)
         self.btn_continue = QPushButton("Continue to generate")
         self.btn_continue.clicked.connect(self._go_to_start)
-
         fb.addWidget(self.lbl_finished)
         fb.addWidget(self.btn_continue, alignment=Qt.AlignRight)
         layout.addWidget(self.finished_box)
-
         return root
 
     def _start_job(self) -> None:
@@ -314,11 +284,10 @@ class MainWindow(QMainWindow):
 
         out_dir = self._get_output_dir()
 
-        # Reset UI for progress page
         self.list_done.clear()
-        self.txt_log.clear()
         self.progress.setValue(0)
-        self.lbl_stats.setText("Starting…")
+        self.lbl_stats.setText("Chunks 0/0 | 0/0 chars | 0 chars/s | ETA: --")
+        self.lbl_now.setText("Now doing: starting...")
         self.finished_box.setVisible(False)
 
         self.stack.setCurrentWidget(self.page_progress)
@@ -336,34 +305,45 @@ class MainWindow(QMainWindow):
 
         self._thread.started.connect(self._worker.run)
         self._worker.progress.connect(self._on_progress)
+        self._worker.now_doing.connect(self._on_now_doing)
         self._worker.section_done.connect(self._on_section_done)
         self._worker.finished.connect(self._on_finished)
         self._worker.failed.connect(self._on_failed)
 
-        # cleanup
         self._worker.finished.connect(self._thread.quit)
         self._worker.failed.connect(self._thread.quit)
         self._thread.finished.connect(self._thread.deleteLater)
-
         self._thread.start()
 
-    def _on_progress(self, processed: int, total: int, cps: float, eta: float) -> None:
+    def _on_progress(
+        self,
+        processed: int,
+        total: int,
+        cps: float,
+        eta: float,
+        done_chunks: int,
+        total_chunks: int,
+    ) -> None:
         pct = int((processed / max(total, 1)) * 100)
         self.progress.setValue(min(max(pct, 0), 100))
         eta_str = f"{int(eta // 60)}m {int(eta % 60)}s" if eta > 0 else "--"
-        self.lbl_stats.setText(f"{processed} / {total} chars | {cps:.1f} chars/s | ETA: {eta_str}")
+        self.lbl_stats.setText(
+            f"Chunks {done_chunks}/{total_chunks} | {processed}/{total} chars | {cps:.1f} chars/s | ETA: {eta_str}"
+        )
+
+    def _on_now_doing(self, msg: str) -> None:
+        self.lbl_now.setText(f"Now doing: {msg}")
 
     def _on_section_done(self, name: str) -> None:
         self.list_done.addItem(name)
-        self.txt_log.append(f"Done: {name}")
 
     def _on_finished(self, out_dir: str) -> None:
-        self.txt_log.append("All selected sections processed.")
+        self.list_done.addItem("All selected sections processed.")
         self.lbl_finished.setText(f'Finished! You can find the file(s) in: "{out_dir}"')
         self.finished_box.setVisible(True)
 
     def _on_failed(self, msg: str) -> None:
-        self.txt_log.append(f"FAILED: {msg}")
+        self.list_done.addItem(f"FAILED: {msg}")
         QMessageBox.critical(self, "Job failed", msg)
         self.lbl_finished.setText(f'Failed. Partial outputs (if any) are in: "{self._get_output_dir()}"')
         self.finished_box.setVisible(True)

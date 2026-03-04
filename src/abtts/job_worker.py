@@ -26,7 +26,8 @@ class JobPlan:
 
 
 class JobWorker(QObject):
-    progress = Signal(int, int, float, float)  # processed_chars, total_chars, cps, eta_seconds
+    progress = Signal(int, int, float, float, int, int)  # chars + timing + chunk progress
+    now_doing = Signal(str)  # current action line
     section_done = Signal(str)  # section display name
     finished = Signal(str)  # output folder path
     failed = Signal(str)  # error message
@@ -47,6 +48,7 @@ class JobWorker(QObject):
             selected = [(i, self.plan.sections[i]) for i in self.plan.selected_indices]
             total_chars = sum(len(s.text.strip()) for _, s in selected) or 1
             processed = 0
+            completed_chunks = 0
             start = time.time()
 
             voice = os.getenv("ABTTS_VOICE", "af_heart").strip() or "af_heart"
@@ -56,6 +58,13 @@ class JobWorker(QObject):
             temp_wav_path = self._unique_path(out_dir / f"{book_base}.tmp.wav")
             m4b_path = self._unique_path(out_dir / f"{book_base}.m4b")
 
+            chunks_by_section: list[tuple[int, Section, list[str]]] = []
+            for section_index, section in selected:
+                section_text = section.text.strip()
+                section_chunks = self._chunk_text(section_text) if section_text else []
+                chunks_by_section.append((section_index, section, section_chunks))
+            total_chunks = sum(len(chunks) for _, _, chunks in chunks_by_section)
+
             with wave.open(str(temp_wav_path), "wb") as combined_wav:
                 combined_wav.setnchannels(1)
                 combined_wav.setsampwidth(2)
@@ -63,7 +72,10 @@ class JobWorker(QObject):
 
                 wrote_any_audio = False
 
-                for section_index, section in selected:
+                self.now_doing.emit("Preparing synthesis...")
+                self.progress.emit(0, total_chars, 0.0, 0.0, 0, total_chunks)
+
+                for section_index, section, section_chunks in chunks_by_section:
                     if self._cancel:
                         self.failed.emit("Cancelled.")
                         return
@@ -74,21 +86,34 @@ class JobWorker(QObject):
                         continue
 
                     audio_parts: List[np.ndarray] = []
-                    for text_chunk in self._chunk_text(text):
+                    section_chunk_total = len(section_chunks)
+                    for chunk_i, text_chunk in enumerate(section_chunks, start=1):
                         if self._cancel:
                             self.failed.emit("Cancelled.")
                             return
 
+                        self.now_doing.emit(
+                            f"Synthesizing {self._display_name(section)} "
+                            f"(chunk {chunk_i}/{section_chunk_total})"
+                        )
                         chunk_audio = engine.synthesize_one(text_chunk)
                         if chunk_audio.size > 0:
                             audio_parts.append(chunk_audio)
 
                         processed += len(text_chunk)
+                        completed_chunks += 1
                         elapsed = max(time.time() - start, 1e-6)
                         cps = processed / elapsed
                         remaining = max(total_chars - processed, 0)
                         eta = remaining / cps if cps > 0 else 0.0
-                        self.progress.emit(min(processed, total_chars), total_chars, cps, eta)
+                        self.progress.emit(
+                            min(processed, total_chars),
+                            total_chars,
+                            cps,
+                            eta,
+                            completed_chunks,
+                            total_chunks,
+                        )
 
                     if audio_parts:
                         output_name = self._section_filename(section_index, section)
@@ -105,13 +130,14 @@ class JobWorker(QObject):
                 self.failed.emit("No audio was generated from selected sections.")
                 return
 
-            self.section_done.emit("Packaging audiobook (.m4b)...")
+            self.now_doing.emit("Converting combined WAV to M4B...")
             self._encode_m4b(temp_wav_path, m4b_path)
             self.section_done.emit(f"M4B ready -> {m4b_path.name}")
 
             elapsed = max(time.time() - start, 1e-6)
             final_cps = total_chars / elapsed
-            self.progress.emit(total_chars, total_chars, final_cps, 0.0)
+            self.progress.emit(total_chars, total_chars, final_cps, 0.0, total_chunks, total_chunks)
+            self.now_doing.emit("Done.")
             self.finished.emit(str(out_dir))
 
         except Exception as e:
