@@ -10,7 +10,7 @@ Requires-Dist: kokoro
 
 # Audiobook TTS (Kokoro + UI)
 
-Desktop UI to load a TXT file, split it into sections, select which sections to generate, and produce `.wav` files with Kokoro voices.
+Desktop UI to load a TXT file, split it into sections, select which sections to generate, and export an audiobook `.m4b` file.
 
 ## Input format
 
@@ -35,6 +35,17 @@ Notes text.
 
 If no headers are found, the whole file is treated as one chapter.
 
+## Requirements
+
+- Python 3.10+
+- `ffmpeg` on your system `PATH` (required for `.m4b` export)
+
+On Windows, after installing ffmpeg, verify:
+
+```powershell
+ffmpeg -version
+```
+
 ## Setup
 
 From project root:
@@ -48,7 +59,7 @@ pip install -e .
 
 ## Run
 
-Optional: choose Kokoro voice (example with an elegant female voice):
+Optional: choose Kokoro voice:
 
 ```powershell
 $env:ABTTS_VOICE = "af_heart"
@@ -72,8 +83,10 @@ python -m abtts
 2. Select sections to generate.
 3. Optionally change output folder.
 4. Click `Generate`.
-5. Wait for completion. One `.wav` file is written per selected section.
+5. Wait for completion.
 
 ## Output
 
-Generated files are written to the selected output folder (default: `~/AudiobookTTS/Output`).
+- One `.m4b` audiobook file is created for the selected sections.
+- Section `.wav` files are also generated.
+- If `.m4b` packaging fails (for example ffmpeg missing), an error is shown and `.wav` files remain available.
