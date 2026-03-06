@@ -69,6 +69,9 @@ class MainWindow(QMainWindow):
         self._input_path: Optional[str] = None
         self._sections: List[Section] = []
 
+        # Mapping from visible list row -> original section index
+        self._visible_to_section_index: List[int] = []
+
         self._thread: Optional[QThread] = None
         self._worker: Optional[JobWorker] = None
 
@@ -87,7 +90,7 @@ class MainWindow(QMainWindow):
         root_layout = QVBoxLayout(root)
         root_layout.setSpacing(12)
 
-        header = QLabel("Select a file and choose which sections to generate")
+        header = QLabel("Select a file and choose which chapters to generate")
         header.setStyleSheet("font-size: 18px; font-weight: 600;")
         root_layout.addWidget(header)
 
@@ -192,21 +195,28 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Error", f"{type(e).__name__}: {e}")
 
     def _populate_sections_list(self, sections: List[Section]) -> None:
+        """
+        Show ONLY CHAPTER items in the selection list.
+
+        IMPORTANT: because we filter the visible list, we maintain a mapping:
+        visible row index -> original section index
+        """
         self.list_sections.blockSignals(True)
         self.list_sections.clear()
+        self._visible_to_section_index = []
 
-        for s in sections:
-            if s.kind == "CHAPTER":
-                display = s.title
-            elif s.kind == "EXTRA":
-                display = f"EXTRA {s.title}"
-            else:
-                display = f"SIDE STORY {s.title}"
+        for original_index, s in enumerate(sections):
+            if s.kind != "CHAPTER":
+                continue  # hide EXTRA and SIDE STORY per your request
+
+            # Keep your display style (chapter index in the file title is already in s.title if you wrote it that way)
+            display = f"CHAPTER {s.title}" if not s.title.upper().startswith("CHAPTER") else s.title
 
             item = QListWidgetItem(display)
             item.setFlags(item.flags() | Qt.ItemIsUserCheckable | Qt.ItemIsSelectable | Qt.ItemIsEnabled)
             item.setCheckState(Qt.Unchecked)
             self.list_sections.addItem(item)
+            self._visible_to_section_index.append(original_index)
 
         self.list_sections.blockSignals(False)
 
@@ -226,10 +236,14 @@ class MainWindow(QMainWindow):
             self.list_sections.item(i).setCheckState(Qt.Checked)
 
     def _selected_indices(self) -> List[int]:
+        """
+        Return indices into self._sections (original sections list),
+        not indices into the visible list widget.
+        """
         indices: List[int] = []
-        for i in range(self.list_sections.count()):
-            if self.list_sections.item(i).checkState() == Qt.Checked:
-                indices.append(i)
+        for visible_row in range(self.list_sections.count()):
+            if self.list_sections.item(visible_row).checkState() == Qt.Checked:
+                indices.append(self._visible_to_section_index[visible_row])
         return indices
 
     def _update_generate_enabled(self) -> None:
@@ -238,59 +252,42 @@ class MainWindow(QMainWindow):
     def _build_progress_page(self) -> QWidget:
         root = QWidget()
         layout = QVBoxLayout(root)
-        layout.setSpacing(12)
+        layout.setSpacing(10)
 
-        header = QLabel("Generating...")
-        header.setStyleSheet("font-size: 18px; font-weight: 600;")
-        layout.addWidget(header)
+        self.lbl_status = QLabel("Ready.")
+        self.lbl_status.setWordWrap(True)
+        layout.addWidget(self.lbl_status)
 
-        layout.addWidget(QLabel("Completed so far"))
-        self.list_done = QListWidget()
-        layout.addWidget(self.list_done, 1)
+        self.prog = QProgressBar()
+        self.prog.setRange(0, 100)
+        self.prog.setValue(0)
+        layout.addWidget(self.prog)
 
-        self.lbl_now = QLabel("Now doing: starting...")
-        self.lbl_now.setWordWrap(True)
-        layout.addWidget(self.lbl_now)
+        self.lbl_detail = QLabel("")
+        self.lbl_detail.setWordWrap(True)
+        layout.addWidget(self.lbl_detail)
 
-        bottom = QHBoxLayout()
-        self.progress = QProgressBar()
-        self.progress.setRange(0, 100)
-        self.lbl_stats = QLabel("Chunks 0/0 | 0/0 chars | 0 chars/s | ETA: --")
-        self.lbl_stats.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        bottom.addWidget(self.progress, 1)
-        bottom.addWidget(self.lbl_stats, 0)
-        layout.addLayout(bottom)
+        btn_row = QHBoxLayout()
+        self.btn_cancel = QPushButton("Cancel")
+        self.btn_cancel.clicked.connect(self._cancel_job)
+        self.btn_back = QPushButton("Back")
+        self.btn_back.clicked.connect(self._back_to_select)
+        self.btn_back.setEnabled(False)
 
-        self.finished_box = QFrame()
-        self.finished_box.setFrameShape(QFrame.StyledPanel)
-        self.finished_box.setVisible(False)
-        fb = QVBoxLayout(self.finished_box)
-        self.lbl_finished = QLabel('Finished! You can find the file(s) in: ""')
-        self.lbl_finished.setWordWrap(True)
-        self.btn_continue = QPushButton("Continue to generate")
-        self.btn_continue.clicked.connect(self._go_to_start)
-        fb.addWidget(self.lbl_finished)
-        fb.addWidget(self.btn_continue, alignment=Qt.AlignRight)
-        layout.addWidget(self.finished_box)
+        btn_row.addWidget(self.btn_cancel)
+        btn_row.addStretch(1)
+        btn_row.addWidget(self.btn_back)
+        layout.addLayout(btn_row)
+
         return root
 
     def _start_job(self) -> None:
-        if not self._input_path or not self._sections:
+        if not self._input_path:
             return
-
+        out_dir = self._get_output_dir()
         selected = self._selected_indices()
         if not selected:
             return
-
-        out_dir = self._get_output_dir()
-
-        self.list_done.clear()
-        self.progress.setValue(0)
-        self.lbl_stats.setText("Chunks 0/0 | 0/0 chars | 0 chars/s | ETA: --")
-        self.lbl_now.setText("Now doing: starting...")
-        self.finished_box.setVisible(False)
-
-        self.stack.setCurrentWidget(self.page_progress)
 
         plan = JobPlan(
             input_path=self._input_path,
@@ -304,56 +301,74 @@ class MainWindow(QMainWindow):
         self._worker.moveToThread(self._thread)
 
         self._thread.started.connect(self._worker.run)
-        self._worker.progress.connect(self._on_progress)
         self._worker.now_doing.connect(self._on_now_doing)
         self._worker.section_done.connect(self._on_section_done)
+        self._worker.progress.connect(self._on_progress)
         self._worker.finished.connect(self._on_finished)
         self._worker.failed.connect(self._on_failed)
 
-        self._worker.finished.connect(self._thread.quit)
-        self._worker.failed.connect(self._thread.quit)
-        self._thread.finished.connect(self._thread.deleteLater)
         self._thread.start()
+        self.btn_back.setEnabled(False)
+        self.stack.setCurrentWidget(self.page_progress)
 
-    def _on_progress(
-        self,
-        processed: int,
-        total: int,
-        cps: float,
-        eta: float,
-        done_chunks: int,
-        total_chunks: int,
-    ) -> None:
-        pct = int((processed / max(total, 1)) * 100)
-        self.progress.setValue(min(max(pct, 0), 100))
-        eta_str = f"{int(eta // 60)}m {int(eta % 60)}s" if eta > 0 else "--"
-        self.lbl_stats.setText(
-            f"Chunks {done_chunks}/{total_chunks} | {processed}/{total} chars | {cps:.1f} chars/s | ETA: {eta_str}"
+    def _cancel_job(self) -> None:
+        if self._worker:
+            self._worker.cancel()
+            self.lbl_status.setText("Cancelling...")
+
+    def _back_to_select(self) -> None:
+        self.stack.setCurrentWidget(self.page_select)
+
+    def _on_now_doing(self, text: str) -> None:
+        self.lbl_status.setText(text)
+
+    def _on_section_done(self, text: str) -> None:
+        # Just show last completed line
+        self.lbl_detail.setText(text)
+
+    def _on_progress(self, done_chars: int, total_chars: int, cps: float, eta: float, done_chunks: int, total_chunks: int) -> None:
+        if total_chars <= 0:
+            total_chars = 1
+        pct = int(round((done_chars / total_chars) * 100))
+        self.prog.setValue(max(0, min(100, pct)))
+        self.lbl_detail.setText(
+            f"Text: {done_chars}/{total_chars} chars | Speed: {cps:.1f} chars/s | ETA: {eta:.1f}s | "
+            f"Parts: {done_chunks}/{total_chunks}"
         )
 
-    def _on_now_doing(self, msg: str) -> None:
-        self.lbl_now.setText(f"Now doing: {msg}")
-
-    def _on_section_done(self, name: str) -> None:
-        self.list_done.addItem(name)
+    def _cleanup_thread(self) -> None:
+        if self._thread:
+            self._thread.quit()
+            self._thread.wait(3000)
+        self._thread = None
+        self._worker = None
 
     def _on_finished(self, out_dir: str) -> None:
-        self.list_done.addItem("All selected sections processed.")
-        self.lbl_finished.setText(f'Finished! You can find the file(s) in: "{out_dir}"')
-        self.finished_box.setVisible(True)
+        self._cleanup_thread()
+        self.lbl_status.setText("Finished.")
+        self.lbl_detail.setText(f"Output saved to: {out_dir}")
+        self.btn_back.setEnabled(True)
+        self.btn_cancel.setEnabled(False)
 
     def _on_failed(self, msg: str) -> None:
-        self.list_done.addItem(f"FAILED: {msg}")
-        QMessageBox.critical(self, "Job failed", msg)
-        self.lbl_finished.setText(f'Failed. Partial outputs (if any) are in: "{self._get_output_dir()}"')
-        self.finished_box.setVisible(True)
+        self._cleanup_thread()
+        self.lbl_status.setText("Failed.")
+        self.lbl_detail.setText(msg)
+        self.btn_back.setEnabled(True)
+        self.btn_cancel.setEnabled(False)
+        QMessageBox.critical(self, "Error", msg)
 
-    def _go_to_start(self) -> None:
-        self.stack.setCurrentWidget(self.page_select)
+
+def main() -> None:
+    app = QApplication([])
+    w = MainWindow()
+    w.show()
+    app.exec()
 
 
 def run_app() -> None:
-    app = QApplication([])
-    win = MainWindow()
-    win.show()
-    app.exec()
+    main()
+
+
+if __name__ == "__main__":
+    main()

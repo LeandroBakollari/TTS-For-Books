@@ -10,9 +10,11 @@ Requires-Dist: kokoro
 
 # Audiobook TTS (Kokoro + UI)
 
-Desktop UI to load a TXT file, split it into sections, select which sections to generate, and export an audiobook `.m4b` file.
+Desktop UI to load a TXT or EPUB file, split it into sections, select which sections to generate, and export an audiobook `.m4b` file.
 
 ## Input format
+
+### TXT
 
 The parser detects section headers that start with one of these:
 
@@ -34,6 +36,11 @@ Notes text.
 ```
 
 If no headers are found, the whole file is treated as one chapter.
+
+### EPUB
+
+- `.epub` files are supported.
+- Chapters are extracted from the EPUB spine order and shown as selectable sections in the UI.
 
 ## Requirements
 
@@ -79,11 +86,15 @@ python -m abtts
 
 ## Use in UI
 
-1. Choose or drag a `.txt` file.
+1. Choose or drag a `.txt` or `.epub` file.
 2. Select sections to generate.
 3. Optionally change output folder.
 4. Click `Generate`.
 5. Wait for completion.
+6. Progress page shows:
+   - a single list of completed items
+   - current action (`Now doing`)
+   - chunk progress (`done/total`), chars/s, and ETA
 
 ## Output
 
