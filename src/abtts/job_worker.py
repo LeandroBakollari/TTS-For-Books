@@ -61,7 +61,7 @@ class JobWorker(QObject):
             start = time.time()
 
             voice = os.getenv("ABTTS_VOICE", "af_heart").strip() or "af_heart"
-            speak_part_headers = self._env_bool("ABTTS_SPEAK_PART_HEADERS", default=True)
+            speak_part_headers = self._env_bool("ABTTS_SPEAK_PART_HEADERS", default=False)
             embed_m4b_chapters = self._env_bool("ABTTS_M4B_CHAPTERS", default=True)
             part_silence_s = self._env_float("ABTTS_PART_SILENCE", default=0.35, min_value=0.0, max_value=10.0)
             chapter_silence_s = self._env_float("ABTTS_CHAPTER_SILENCE", default=0.8, min_value=0.0, max_value=30.0)
@@ -259,12 +259,12 @@ class JobWorker(QObject):
         # Keep simple: one WAV per chapter section.
         kind = section.kind.lower().replace(" ", "_")
         safe_title = re.sub(r"[^a-zA-Z0-9_-]+", "_", section.title).strip("_") or "untitled"
-        return f"{index + 1:03d}_{kind}_{safe_title}.wav"
+        return f"{safe_title}.wav"
 
     def _chapter_title(self, index: int, section: Section) -> str:
         # This is what shows up in the iPhone Books chapter list.
         # NO parts here.
-        return f"Chapter {index + 1}: {section.title}"
+        return section.title
 
     def _spoken_part_header(self, index: int, section: Section, part_number: int) -> str:
         # This is only spoken audio, not metadata chapters.

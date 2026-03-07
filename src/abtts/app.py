@@ -210,7 +210,7 @@ class MainWindow(QMainWindow):
                 continue  # hide EXTRA and SIDE STORY per your request
 
             # Keep your display style (chapter index in the file title is already in s.title if you wrote it that way)
-            display = f"CHAPTER {s.title}" if not s.title.upper().startswith("CHAPTER") else s.title
+            display = s.title
 
             item = QListWidgetItem(display)
             item.setFlags(item.flags() | Qt.ItemIsUserCheckable | Qt.ItemIsSelectable | Qt.ItemIsEnabled)

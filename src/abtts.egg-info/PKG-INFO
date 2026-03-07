@@ -7,6 +7,7 @@ Description-Content-Type: text/markdown
 Requires-Dist: PySide6>=6.6
 Requires-Dist: numpy>=1.26
 Requires-Dist: kokoro
+Requires-Dist: soundfile
 
 # Audiobook TTS (Kokoro + UI)
 
@@ -64,6 +65,13 @@ pip install -U pip
 pip install -e .
 ```
 
+If PowerShell blocks activation, run:
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+.\.venv\Scripts\Activate.ps1
+```
+
 ## Run
 
 Optional: choose Kokoro voice:
@@ -82,6 +90,20 @@ Or:
 
 ```powershell
 python -m abtts
+```
+
+If `abtts` is not found, the package was not installed into the active virtual environment yet. Run:
+
+```powershell
+pip install -e .
+python -m abtts
+```
+
+## Quick environment check
+
+```powershell
+python -c "import PySide6, numpy, kokoro, soundfile, abtts; print('setup ok')"
+ffmpeg -version
 ```
 
 ## Use in UI

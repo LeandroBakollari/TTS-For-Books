@@ -12,6 +12,7 @@ dependencies = [
   "PySide6>=6.6",
   "numpy>=1.26",
   "kokoro",
+  "soundfile",
 ]
 
 [project.scripts]
