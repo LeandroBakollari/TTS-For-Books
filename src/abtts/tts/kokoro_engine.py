@@ -1,10 +1,18 @@
 from __future__ import annotations
 
+import os
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Tuple
 
 import numpy as np
+
+if sys.stdout is None:
+    sys.stdout = open(os.devnull, "w", encoding="utf-8")
+if sys.stderr is None:
+    sys.stderr = open(os.devnull, "w", encoding="utf-8")
+
 from kokoro import KPipeline  # official API shown in Kokoro docs :contentReference[oaicite:3]{index=3}
 from kokoro.model import KModel
 
