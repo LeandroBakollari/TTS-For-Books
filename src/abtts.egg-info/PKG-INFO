@@ -1,0 +1,176 @@
+Metadata-Version: 2.4
+Name: abtts
+Version: 0.1.0
+Summary: Audiobook TTS desktop app using Kokoro
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+Requires-Dist: PySide6>=6.6
+Requires-Dist: numpy>=1.26
+Requires-Dist: kokoro
+Requires-Dist: soundfile
+
+# Audiobook TTS (Kokoro + UI)
+
+Desktop UI to load a TXT or EPUB file, split it into sections, select which sections to generate, and export an audiobook `.m4b` file.
+
+## For sharing with other people on Windows
+
+This repo now supports an offline Windows release flow:
+
+- Bundle Kokoro model + voices into the app.
+- Bundle `ffmpeg.exe` + `ffprobe.exe` into the app.
+- Build a desktop `.exe` app.
+- Build a normal `Setup.exe` installer (Inno Setup).
+
+### Do users need Python installed?
+
+- If you ship a PyInstaller build: `No` (Python is bundled).
+- If they run from source code: `Yes` (Python 3.10+ required).
+
+### Do users need FFmpeg installed?
+
+- If you use the offline release flow below: `No` (FFmpeg is bundled).
+- If you run from source only: either install FFmpeg globally or place it in `assets/ffmpeg`.
+
+### Windows version support
+
+- Target Python: use 3.11 for building (good Windows support and stable packaging).
+- Build on the oldest Windows version you want to support (Windows 10) for best compatibility.
+- Test the built app on a clean Windows 10 machine/VM.
+
+## Input format
+
+### TXT
+
+The parser detects section headers that start with one of these:
+
+- `CHAPTER ...`
+- `EXTRA ...`
+- `SIDE STORY ...`
+
+Example:
+
+```text
+CHAPTER 1: Arrival
+This is the first chapter text.
+
+SIDE STORY: Tavern Scene
+Extra side content.
+
+EXTRA: Author Notes
+Notes text.
+```
+
+If no headers are found, the whole file is treated as one chapter.
+
+### EPUB
+
+- `.epub` files are supported.
+- Chapters are extracted from the EPUB spine order and shown as selectable sections in the UI.
+
+## Requirements
+
+- Python 3.10+ (3.11 recommended for development/builds)
+
+## Setup
+
+From project root:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -U pip
+pip install -e .
+```
+
+If PowerShell blocks activation, run:
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+.\.venv\Scripts\Activate.ps1
+```
+
+## Run
+
+Optional: choose Kokoro voice:
+
+```powershell
+$env:ABTTS_VOICE = "af_heart"
+```
+
+Start app:
+
+```powershell
+abtts
+```
+
+Or:
+
+```powershell
+python -m abtts
+```
+
+If `abtts` is not found, the package was not installed into the active virtual environment yet. Run:
+
+```powershell
+pip install -e .
+python -m abtts
+```
+
+## Build a Windows `.exe` (PyInstaller)
+
+1. Download offline assets (Kokoro model + selected voices + FFmpeg):
+
+```powershell
+python scripts\download_offline_assets.py
+```
+
+2. Build the app bundle:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\build_windows_release.ps1
+```
+
+Output:
+
+- App folder: `dist\AudiobookTTS\`
+- Main executable: `dist\AudiobookTTS\AudiobookTTS.exe`
+
+## Build `Setup.exe` installer (Inno Setup)
+
+Install Inno Setup, then run:
+
+```powershell
+iscc installers\abtts.iss /DMyAppVersion=0.1.0 /DMyAppName=AudiobookTTS
+```
+
+Output:
+
+- `dist\installer\AudiobookTTS-Setup-0.1.0.exe`
+
+Users can now install and run without separately installing Python or FFmpeg.
+For true offline runtime, keep bundled assets in the installer output.
+
+## Quick environment check
+
+```powershell
+python -c "import PySide6, numpy, kokoro, soundfile, abtts; print('setup ok')"
+```
+
+## Use in UI
+
+1. Choose or drag a `.txt` or `.epub` file.
+2. Select sections to generate.
+3. Optionally change output folder.
+4. Click `Generate`.
+5. Wait for completion.
+6. Progress page shows:
+   - a single list of completed items
+   - current action (`Now doing`)
+   - chunk progress (`done/total`), chars/s, and ETA
+
+## Output
+
+- One `.m4b` audiobook file is created for the selected sections.
+- Section `.wav` files are also generated.
+- If `.m4b` packaging fails (for example ffmpeg missing), an error is shown and `.wav` files remain available.
