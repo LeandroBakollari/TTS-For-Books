@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import sys
+import multiprocessing
 
 
 def _ensure_stdio() -> None:
@@ -16,6 +17,7 @@ def _ensure_stdio() -> None:
 
 
 _ensure_stdio()
+multiprocessing.freeze_support()
 
 from abtts.app import run_app
 
